@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 
 const resumeSchema = new mongoose.Schema({
-  title: {
+  filename: {
     type: String,
     required: true
   },
-  filename: {
+  originalName: {
     type: String,
     required: true
   },
@@ -13,7 +13,16 @@ const resumeSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  uploadDate: {
+  title: {
+    type: String,
+    required: true
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  createdAt: {
     type: Date,
     default: Date.now
   }

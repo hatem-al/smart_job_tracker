@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { DocumentArrowUpIcon, TrashIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
+import Navigation from './Navigation';
+import axios from '../utils/axios';
+import { EyeIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 const ResumeManager = () => {
   const [resumes, setResumes] = useState([]);
   const [file, setFile] = useState(null);
-  const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchResumes();
@@ -15,11 +17,11 @@ const ResumeManager = () => {
 
   const fetchResumes = async () => {
     try {
-      const response = await axios.get('http://localhost:5050/api/resume');
+      const response = await axios.get('/api/resumes');
       setResumes(response.data);
     } catch (error) {
+      setError('Failed to load resumes. Please try again.');
       console.error('Error fetching resumes:', error);
-      setError('Failed to fetch resumes. Please try again.');
     }
   };
 
@@ -29,15 +31,15 @@ const ResumeManager = () => {
       setFile(selectedFile);
       setError('');
     } else {
-      setError('Please select a PDF file');
       setFile(null);
+      setError('Please select a PDF file');
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file || !title) {
-      setError('Please provide both a title and a PDF file');
+    if (!file) {
+      setError('Please select a file to upload');
       return;
     }
 
@@ -46,141 +48,121 @@ const ResumeManager = () => {
 
     const formData = new FormData();
     formData.append('resume', file);
-    formData.append('title', title);
+    formData.append('title', file.name);
 
     try {
-      await axios.post('http://localhost:5050/api/resume', formData, {
+      await axios.post('/api/resumes', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+          'Content-Type': 'multipart/form-data'
+        }
       });
-      setTitle('');
       setFile(null);
+      e.target.reset();
       fetchResumes();
     } catch (error) {
-      console.error('Upload error:', error);
-      setError(error.response?.data?.message || 'Error uploading resume. Please try again.');
+      setError(error.response?.data?.message || 'Failed to upload resume');
+      console.error('Error uploading resume:', error);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this resume?')) {
+      return;
+    }
+
     try {
-      await axios.delete(`http://localhost:5050/api/resume/${id}`);
-      fetchResumes();
+      await axios.delete(`/api/resumes/${id}`);
+      setResumes(resumes.filter(resume => resume._id !== id));
     } catch (error) {
+      setError('Failed to delete resume');
       console.error('Error deleting resume:', error);
-      setError('Failed to delete resume. Please try again.');
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Upload Form */}
-      <div className="card">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload New Resume</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-              Resume Title
-            </label>
-            <input
-              type="text"
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="input-field"
-              placeholder="e.g., Software Engineer Resume 2024"
-              required
-            />
+    <div className="min-h-screen bg-gray-100">
+      <Navigation />
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Upload Resume (PDF)
-            </label>
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-              <div className="space-y-1 text-center">
-                <DocumentArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
-                <div className="flex text-sm text-gray-600">
-                  <label
-                    htmlFor="file-upload"
-                    className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
-                  >
-                    <span>Upload a file</span>
-                    <input
-                      id="file-upload"
-                      name="file-upload"
-                      type="file"
-                      className="sr-only"
-                      accept=".pdf"
-                      onChange={handleFileChange}
-                    />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">PDF up to 10MB</p>
-              </div>
+        <div className="glass-effect p-6 rounded-lg mb-6">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">Upload Resume</h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="form-group">
+              <label htmlFor="resume" className="form-label">Select PDF File</label>
+              <input
+                type="file"
+                id="resume"
+                accept=".pdf"
+                onChange={handleFileChange}
+                className="input-field"
+                required
+              />
             </div>
-            {file && (
-              <p className="mt-2 text-sm text-gray-600">
-                Selected file: {file.name}
-              </p>
-            )}
-          </div>
-
-          {error && (
-            <p className="text-red-600 text-sm">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn-primary w-full"
-          >
-            {loading ? 'Uploading...' : 'Upload Resume'}
-          </button>
-        </form>
-      </div>
-
-      {/* Resume List */}
-      <div className="card">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Resumes</h2>
-        <div className="space-y-4">
-          {resumes.map((resume) => (
-            <div key={resume._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">{resume.title}</h3>
-                <p className="text-sm text-gray-500">
-                  Uploaded on {new Date(resume.uploadDate).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="flex space-x-2">
-                <a
-                  href={`http://localhost:5050/api/resume/${resume._id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 text-gray-600 hover:text-blue-600"
-                  title="View Resume"
-                >
-                  <EyeIcon className="h-5 w-5" />
-                </a>
-                <button
-                  onClick={() => handleDelete(resume._id)}
-                  className="p-2 text-gray-600 hover:text-red-600"
-                  title="Delete Resume"
-                >
-                  <TrashIcon className="h-5 w-5" />
-                </button>
-              </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={loading || !file}
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Uploading...
+                  </>
+                ) : (
+                  'Upload Resume'
+                )}
+              </button>
             </div>
-          ))}
-          {resumes.length === 0 && (
-            <p className="text-gray-500 text-center py-4">No resumes uploaded yet</p>
-          )}
+          </form>
         </div>
-      </div>
+
+        <div className="glass-effect p-6 rounded-lg">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">Your Resumes</h2>
+          <div className="grid gap-4">
+            {resumes.map((resume) => (
+              <div key={resume._id} className="card hover-lift">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      {resume.title || resume.filename}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      Uploaded: {new Date(resume.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <a
+                      href={`/api/resumes/${resume._id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-primary"
+                    >
+                      View
+                    </a>
+                    <button
+                      onClick={() => handleDelete(resume._id)}
+                      className="btn-primary bg-red-600 hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

@@ -1,41 +1,53 @@
 const mongoose = require('mongoose');
 
 const jobSchema = new mongoose.Schema({
-  company: {
-    type: String,
-    required: true,
-    trim: true
-  },
   title: {
     type: String,
-    required: true,
-    trim: true
+    required: true
+  },
+  company: {
+    type: String,
+    required: true
   },
   status: {
     type: String,
-    required: true,
     enum: ['Applied', 'Interview', 'Offer', 'Rejected', 'Saved'],
     default: 'Applied'
   },
   date: {
     type: Date,
-    required: true,
-    default: Date.now
+    required: true
   },
-  resumeUsed: {
-    type: String,
-    trim: true
+  resume: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Resume'
   },
   notes: {
-    type: String,
-    trim: true
+    type: String
   },
-  jobDescription: {
-    type: String,
-    trim: true
+  description: {
+    type: String
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  statusChangedAt: {
+    type: Date
   }
-}, {
-  timestamps: true
+});
+
+// Pre-save hook to update statusChangedAt when status changes
+jobSchema.pre('save', function(next) {
+  if (this.isModified('status')) {
+    this.statusChangedAt = new Date();
+  }
+  next();
 });
 
 module.exports = mongoose.model('Job', jobSchema); 

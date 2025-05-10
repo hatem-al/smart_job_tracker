@@ -3,18 +3,9 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const pdfParse = require('pdf-parse');
-const { OpenAI } = require('openai');
+const pdf = require('pdf-parse');
+const OpenAI = require('openai');
 const Resume = require('../models/Resume');
-
-// Initialize OpenAI with error checking
-if (!process.env.OPENAI_API_KEY) {
-  console.error('OPENAI_API_KEY is not set in environment variables');
-}
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -26,29 +17,52 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
       cb(new Error('Only PDF files are allowed'));
     }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
   }
 });
 
-// Get all resumes
+// Initialize OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+// Get all resumes for the current user
 router.get('/', async (req, res) => {
   try {
-    const resumes = await Resume.find().sort({ uploadDate: -1 });
+    const resumes = await Resume.find({ user: req.user._id });
     res.json(resumes);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching resumes:', error);
+    res.status(500).json({ message: 'Failed to fetch resumes' });
+  }
+});
+
+// Get a specific resume (only if it belongs to the user)
+router.get('/:id', async (req, res) => {
+  try {
+    const resume = await Resume.findOne({ _id: req.params.id, user: req.user._id });
+    if (!resume) {
+      return res.status(404).json({ message: 'Resume not found' });
+    }
+    res.json(resume);
+  } catch (error) {
+    console.error('Error fetching resume:', error);
+    res.status(500).json({ message: 'Failed to fetch resume' });
   }
 });
 
@@ -60,165 +74,103 @@ router.post('/', upload.single('resume'), async (req, res) => {
     }
 
     const resume = new Resume({
-      title: req.body.title,
       filename: req.file.filename,
+      originalName: req.file.originalname,
       path: req.file.path,
-      uploadDate: new Date()
+      user: req.user._id,
+      title: req.body.title || req.file.originalname
     });
 
-    const savedResume = await resume.save();
-    res.status(201).json(savedResume);
+    await resume.save();
+    res.status(201).json(resume);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error uploading resume:', error);
+    res.status(500).json({ message: 'Failed to upload resume' });
   }
 });
 
-// Get a specific resume
-router.get('/:id', async (req, res) => {
-  try {
-    const resume = await Resume.findById(req.params.id);
-    if (!resume) {
-      return res.status(404).json({ message: 'Resume not found' });
-    }
-    res.download(resume.path);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Delete a resume
+// Delete a resume (only if it belongs to the user)
 router.delete('/:id', async (req, res) => {
   try {
-    const resume = await Resume.findById(req.params.id);
+    const resume = await Resume.findOne({ _id: req.params.id, user: req.user._id });
     if (!resume) {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
     // Delete the file from the filesystem
-    fs.unlinkSync(resume.path);
+    const filePath = path.join(__dirname, '../../uploads', resume.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
 
-    // Delete the database record
-    await Resume.findByIdAndDelete(req.params.id);
+    await Resume.deleteOne({ _id: req.params.id });
     res.json({ message: 'Resume deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error deleting resume:', error);
+    res.status(500).json({ message: 'Failed to delete resume' });
   }
 });
 
-// Analyze resume with AI
+// Analyze resume against job description (AI-powered)
 router.post('/analyze', async (req, res) => {
   try {
     const { resumeId, jobDescription } = req.body;
-
-    if (!resumeId || !jobDescription) {
-      return res.status(400).json({ message: 'Resume ID and job description are required' });
-    }
-
-    // Get the resume file
-    const resume = await Resume.findById(resumeId);
+    const resume = await Resume.findOne({ _id: resumeId, user: req.user._id });
     if (!resume) {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    // Read and parse the PDF
+    // Read the PDF file
     const dataBuffer = fs.readFileSync(resume.path);
-    const pdfData = await pdfParse(dataBuffer);
+    const pdfData = await pdf(dataBuffer);
     const resumeText = pdfData.text;
 
-    // Log API key status (first few characters only for security)
-    const apiKeyPrefix = process.env.OPENAI_API_KEY ? 
-      `${process.env.OPENAI_API_KEY.substring(0, 4)}...` : 
-      'not set';
-    console.log('Using OpenAI API key:', apiKeyPrefix);
+    // Improved prompt for more actionable and concise output
+    const prompt = `You are a professional resume reviewer. Given the following resume text and job description, do the following:
+1. List the top 5 most relevant keywords from the resume that match the job description.
+2. List the top 5 most important keywords missing from the resume that are present in the job description.
+3. Provide 3-5 specific, actionable suggestions to improve the resume for this job.
+4. Write a 2-3 sentence summary of the resume's strengths and weaknesses for this job.\n\nReturn your answer as a JSON object with keys: matchingKeywords, missingKeywords, suggestions, summary.\n\nResume Text:\n"""${resumeText}"""\n\nJob Description:\n"""${jobDescription}"""`;
 
-    // Use OpenAI to analyze the resume
-    const prompt = `You are a professional resume analyzer. Analyze the following resume against the job description.
-
-Resume:
-${resumeText}
-
-Job Description:
-${jobDescription}
-
-Provide a detailed analysis in the following JSON format:
-{
-  "matchingKeywords": ["keyword1", "keyword2", ...],
-  "missingKeywords": ["keyword1", "keyword2", ...],
-  "suggestions": ["suggestion1", "suggestion2", ...],
-  "resumeText": "${resumeText}"
-}
-
-Guidelines:
-1. For matchingKeywords: List all relevant skills, technologies, and qualifications that appear in both the resume and job description
-2. For missingKeywords: List important skills and requirements from the job description that are not found in the resume
-3. For suggestions: Provide specific, actionable recommendations to improve the resume
-4. Keep all arrays concise and focused on the most important items
-5. Ensure the response is valid JSON`;
-
+    // Use OpenAI API
+    let aiResponse;
     try {
-      // First try with gpt-3.5-turbo-16k
-      let completion;
-      try {
-        completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo-16k",
-          messages: [
-            {
-              role: "system",
-              content: "You are a professional resume analyzer. Your task is to analyze resumes against job descriptions and provide structured feedback in JSON format."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 1000
-        });
-      } catch (modelError) {
-        // If that fails, try with gpt-3.5-turbo
-        console.log('Falling back to gpt-3.5-turbo model');
-        completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content: "You are a professional resume analyzer. Your task is to analyze resumes against job descriptions and provide structured feedback in JSON format."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 1000
-        });
-      }
-
-      // Parse the AI response
-      const analysis = JSON.parse(completion.choices[0].message.content);
-      res.json(analysis);
-    } catch (openaiError) {
-      console.error('OpenAI API Error:', {
-        status: openaiError.status,
-        message: openaiError.message,
-        code: openaiError.code,
-        type: openaiError.type,
-        response: openaiError.response?.data
+      aiResponse = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo-16k',
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant for resume analysis.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
       });
-
-      // Provide more helpful error message
-      if (openaiError.status === 429) {
-        throw new Error('OpenAI API quota exceeded. Please check your billing information at https://platform.openai.com/account/billing');
-      }
-      throw openaiError;
+    } catch (err) {
+      // fallback to gpt-3.5-turbo if quota error
+      aiResponse = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant for resume analysis.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+      });
     }
-  } catch (error) {
-    console.error('Analysis error:', error);
-    res.status(500).json({ 
-      message: 'Error analyzing resume: ' + error.message,
-      details: error.response?.data || error
+
+    // Parse the AI response
+    let analysis;
+    try {
+      analysis = JSON.parse(aiResponse.choices[0].message.content);
+    } catch (e) {
+      return res.status(500).json({ message: 'Failed to parse AI response', raw: aiResponse.choices[0].message.content });
+    }
+
+    res.json({
+      ...analysis,
+      resumeText: resumeText.slice(0, 2000) // Optionally limit resume text length
     });
+  } catch (error) {
+    console.error('Error analyzing resume:', error);
+    res.status(500).json({ message: 'Failed to analyze resume', error: error.message });
   }
 });
 
-module.exports = router; 
+module.exports = router;

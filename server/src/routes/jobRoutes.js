@@ -2,81 +2,111 @@ const express = require('express');
 const router = express.Router();
 const Job = require('../models/Job');
 
-// Get all jobs
+// Get all jobs for the current user
 router.get('/', async (req, res) => {
   try {
-    const jobs = await Job.find().sort({ date: -1 });
+    const jobs = await Job.find({ user: req.user._id })
+      .populate('resume', 'title filename')
+      .sort({ date: -1 });
     res.json(jobs);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching jobs:', error);
+    res.status(500).json({ message: 'Failed to fetch jobs' });
+  }
+});
+
+// Get a specific job (only if it belongs to the user)
+router.get('/:id', async (req, res) => {
+  try {
+    const job = await Job.findOne({ _id: req.params.id, user: req.user._id })
+      .populate('resume', 'title filename');
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    res.json(job);
+  } catch (error) {
+    console.error('Error fetching job:', error);
+    res.status(500).json({ message: 'Failed to fetch job' });
   }
 });
 
 // Create a new job
 router.post('/', async (req, res) => {
-  const job = new Job({
-    company: req.body.company,
-    title: req.body.title,
-    status: req.body.status,
-    date: req.body.date,
-    resumeUsed: req.body.resumeUsed,
-    notes: req.body.notes,
-    jobDescription: req.body.jobDescription
-  });
-
   try {
-    const newJob = await job.save();
-    res.status(201).json(newJob);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Get a specific job
-router.get('/:id', async (req, res) => {
-  try {
-    const job = await Job.findById(req.params.id);
-    if (job) {
-      res.json(job);
-    } else {
-      res.status(404).json({ message: 'Job not found' });
+    if (req.body.resume === '') {
+      req.body.resume = undefined;
     }
+    const job = new Job({
+      ...req.body,
+      user: req.user._id
+    });
+    await job.save();
+    res.status(201).json(job);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error creating job:', error);
+    res.status(500).json({ message: 'Failed to create job' });
   }
 });
 
-// Update a job
+// Update a job (only if it belongs to the user)
+router.put('/:id', async (req, res) => {
+  try {
+    if (req.body.resume === '') {
+      req.body.resume = undefined;
+    }
+    const job = await Job.findOne({ _id: req.params.id, user: req.user._id });
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    // If status is changing, update statusChangedAt
+    if (req.body.status && req.body.status !== job.status) {
+      job.statusChangedAt = new Date();
+    }
+    Object.assign(job, req.body);
+    await job.save();
+    res.json(job);
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).json({ message: 'Failed to update job' });
+  }
+});
+
+// Update a job (only if it belongs to the user) - PATCH
 router.patch('/:id', async (req, res) => {
   try {
-    const job = await Job.findById(req.params.id);
+    if (req.body.resume === '') {
+      req.body.resume = undefined;
+    }
+    const job = await Job.findOne({ _id: req.params.id, user: req.user._id });
     if (!job) {
       return res.status(404).json({ message: 'Job not found' });
     }
-
-    Object.keys(req.body).forEach(key => {
-      job[key] = req.body[key];
-    });
-
-    const updatedJob = await job.save();
-    res.json(updatedJob);
+    // If status is changing, update statusChangedAt
+    if (req.body.status && req.body.status !== job.status) {
+      job.statusChangedAt = new Date();
+    }
+    Object.assign(job, req.body);
+    await job.save();
+    res.json(job);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error updating job:', error);
+    res.status(500).json({ message: 'Failed to update job' });
   }
 });
 
-// Delete a job
+// Delete a job (only if it belongs to the user)
 router.delete('/:id', async (req, res) => {
   try {
-    const job = await Job.findById(req.params.id);
+    const job = await Job.findOne({ _id: req.params.id, user: req.user._id });
     if (!job) {
       return res.status(404).json({ message: 'Job not found' });
     }
 
-    await job.deleteOne();
-    res.json({ message: 'Job deleted' });
+    await Job.deleteOne({ _id: req.params.id });
+    res.json({ message: 'Job deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error deleting job:', error);
+    res.status(500).json({ message: 'Failed to delete job' });
   }
 });
 
