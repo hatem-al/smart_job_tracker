@@ -27,7 +27,11 @@ const ResumeManager = () => {
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-    if (selectedFile && selectedFile.type === 'application/pdf') {
+    const isPdf = !!selectedFile && (
+      (selectedFile.type && selectedFile.type.toLowerCase().includes('pdf')) ||
+      (selectedFile.name && selectedFile.name.toLowerCase().endsWith('.pdf'))
+    );
+    if (isPdf) {
       setFile(selectedFile);
       setError('');
     } else {

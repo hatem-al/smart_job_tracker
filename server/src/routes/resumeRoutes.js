@@ -13,7 +13,7 @@ const { Readable } = require('stream');
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    if (file && typeof file.mimetype === 'string' && file.mimetype.toLowerCase().includes('pdf')) {
       cb(null, true);
     } else {
       cb(new Error('Only PDF files are allowed'));
@@ -70,15 +70,31 @@ router.get('/:id/file', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    const bucket = getBucket();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${path.basename(resume.originalName || resume.filename)}"`);
-    const stream = bucket.openDownloadStream(resume.fileId);
-    stream.on('error', (err) => {
-      console.error('Error streaming from GridFS:', err);
-      res.status(500).end();
-    });
-    stream.pipe(res);
+
+    if (resume.fileId) {
+      // New GridFS-based storage
+      const bucket = getBucket();
+      const stream = bucket.openDownloadStream(resume.fileId);
+      stream.on('error', (err) => {
+        console.error('Error streaming from GridFS:', err);
+        res.status(500).end();
+      });
+      stream.pipe(res);
+    } else {
+      // Backward compatibility: legacy filesystem storage
+      const filePath = resume.path || path.join(__dirname, '../../uploads', resume.filename);
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ message: 'Resume file not found' });
+      }
+      const stream = fs.createReadStream(filePath);
+      stream.on('error', (err) => {
+        console.error('Error streaming from filesystem:', err);
+        res.status(500).end();
+      });
+      stream.pipe(res);
+    }
   } catch (error) {
     console.error('Error streaming resume file:', error);
     res.status(500).json({ message: 'Failed to stream resume file' });
@@ -127,11 +143,24 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    const bucket = getBucket();
-    try {
-      await bucket.delete(resume.fileId);
-    } catch (e) {
-      console.error('Error deleting GridFS file:', e);
+    if (resume.fileId) {
+      // GridFS delete
+      const bucket = getBucket();
+      try {
+        await bucket.delete(resume.fileId);
+      } catch (e) {
+        console.error('Error deleting GridFS file:', e);
+      }
+    } else {
+      // Legacy filesystem delete
+      const filePath = resume.path || path.join(__dirname, '../../uploads', resume.filename);
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          console.error('Error deleting legacy file:', e);
+        }
+      }
     }
 
     await Resume.deleteOne({ _id: req.params.id });
@@ -151,16 +180,25 @@ router.post('/analyze', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    // Read the PDF file from GridFS
-    const bucket = getBucket();
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      const dl = bucket.openDownloadStream(resume.fileId);
-      dl.on('data', (c) => chunks.push(c));
-      dl.on('end', resolve);
-      dl.on('error', reject);
-    });
-    const dataBuffer = Buffer.concat(chunks);
+    // Read the PDF file (GridFS or legacy filesystem)
+    let dataBuffer;
+    if (resume.fileId) {
+      const bucket = getBucket();
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        const dl = bucket.openDownloadStream(resume.fileId);
+        dl.on('data', (c) => chunks.push(c));
+        dl.on('end', resolve);
+        dl.on('error', reject);
+      });
+      dataBuffer = Buffer.concat(chunks);
+    } else {
+      const filePath = resume.path || path.join(__dirname, '../../uploads', resume.filename);
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ message: 'Resume file not found' });
+      }
+      dataBuffer = fs.readFileSync(filePath);
+    }
     const pdfData = await pdf(dataBuffer);
     const resumeText = pdfData.text;
 
