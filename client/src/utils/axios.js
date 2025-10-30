@@ -1,8 +1,10 @@
 import axios from 'axios';
 
 // Create axios instance with base URL
+// In production, prefer same-origin requests (relative base URL).
+// In development, set REACT_APP_API_URL to your API origin (e.g., http://localhost:5050).
 const instance = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5050',
+  baseURL: process.env.REACT_APP_API_URL || '',
   headers: {
     'Content-Type': 'application/json'
   },

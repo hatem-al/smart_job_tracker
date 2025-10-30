@@ -66,13 +66,14 @@ const Dashboard = () => {
     return jobs.filter(job => job.status === status).length;
   };
 
-  // Calculate statistics
-  const totalApplications = jobs.length;
-  const statusCounts = getStatusCounts(jobs);
+  // Calculate statistics based on current filters/time range
+  const timeFilteredJobs = getFilteredJobsByTime(filteredJobs);
+  const totalApplications = timeFilteredJobs.length;
+  const statusCounts = getStatusCounts(timeFilteredJobs);
   const pieData = getPieChartData(statusCounts);
 
   // Calculate success rate
-  const successCount = jobs.filter(job => job.status === 'Offer').length;
+  const successCount = timeFilteredJobs.filter(job => job.status === 'Offer').length;
   const successRate = totalApplications > 0 ? (successCount / totalApplications) * 100 : 0;
 
   // Calculate average response time
@@ -89,7 +90,7 @@ const Dashboard = () => {
     : 0;
 
   // Filter jobs based on time range
-  const getFilteredJobsByTime = (jobs) => {
+  function getFilteredJobsByTime(jobs) {
     const now = new Date();
     return jobs.filter(job => {
       const jobDate = new Date(job.date);
@@ -104,7 +105,7 @@ const Dashboard = () => {
           return true;
       }
     });
-  };
+  }
 
   // Filter jobs based on search term and status
   useEffect(() => {
@@ -118,7 +119,7 @@ const Dashboard = () => {
     setFilteredJobs(filtered);
   }, [jobs, searchTerm, statusFilter]);
 
-  const timeFilteredJobs = getFilteredJobsByTime(filteredJobs);
+  // timeFilteredJobs is computed above for use in stats and table
 
   if (loading) {
     return (
@@ -240,18 +241,27 @@ const Dashboard = () => {
             <div className="flex flex-col md:flex-row items-center gap-8">
               <svg width="220" height="220" viewBox="0 0 220 220">
                 <g>
-                  {pieData.map((slice, idx) => (
-                    slice.count > 0 && (
+                  {totalApplications === 0 && (
+                    <circle cx="110" cy="110" r="100" fill="#f3f4f6" stroke="#e5e7eb" strokeWidth="2" />
+                  )}
+                  {totalApplications > 0 && (() => {
+                    const nonZero = pieData.filter(s => s.count > 0);
+                    if (nonZero.length === 1) {
+                      // Single-slice case: draw a full circle with that slice's color
+                      return (
+                        <circle cx="110" cy="110" r="100" fill={nonZero[0].color} stroke="#fff" strokeWidth="2" />
+                      );
+                    }
+                    return nonZero.map((slice) => (
                       <path
                         key={slice.status}
                         d={describeArc(110, 110, 100, slice.startAngle, slice.endAngle)}
                         fill={slice.color}
                         stroke="#fff"
                         strokeWidth="2"
-                      >
-                      </path>
-                    )
-                  ))}
+                      />
+                    ));
+                  })()}
                 </g>
               </svg>
               <div>
@@ -276,10 +286,9 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="glass-effect p-6 rounded-lg">
+        <div className="glass-effect p-6 rounded-lg mt-8">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Recent Applications</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
@@ -289,28 +298,32 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {timeFilteredJobs.slice(0, 5).map((job) => (
-                  <tr key={job._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{job.company}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{job.title}</td>
+                {timeFilteredJobs.map((job) => (
+                  <tr
+                    key={job._id}
+                    className="hover:bg-blue-50 transition-all duration-200 transform hover:scale-[1.01] shadow-sm hover:shadow-lg cursor-pointer"
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{job.company}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{job.title}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        job.status === 'Applied' ? 'bg-blue-100 text-blue-800' :
-                        job.status === 'Interview' ? 'bg-yellow-100 text-yellow-800' :
-                        job.status === 'Offer' ? 'bg-green-100 text-green-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                        ${job.status === 'Applied' ? 'bg-blue-100 text-blue-800' : 
+                          job.status === 'Interview' ? 'bg-yellow-100 text-yellow-800' :
+                          job.status === 'Offer' ? 'bg-green-100 text-green-800' :
+                          job.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'}
+                        transition-colors duration-200`}
+                      >
                         {job.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(job.date).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
         </div>
       </main>
     </div>

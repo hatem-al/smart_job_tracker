@@ -81,6 +81,20 @@ const ResumeManager = () => {
     }
   };
 
+  const handleView = async (id) => {
+    try {
+      const response = await axios.get(`/api/resumes/${id}/file`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      // Optional: revoke after some delay to allow the tab to load
+      setTimeout(() => window.URL.revokeObjectURL(url), 60 * 1000);
+    } catch (err) {
+      setError('Failed to open resume. Please try again.');
+      console.error('Error opening resume:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Navigation />
@@ -142,14 +156,12 @@ const ResumeManager = () => {
                     </p>
                   </div>
                   <div className="flex space-x-2">
-                    <a
-                      href={`/api/resumes/${resume._id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => handleView(resume._id)}
                       className="btn-primary"
                     >
                       View
-                    </a>
+                    </button>
                     <button
                       onClick={() => handleDelete(resume._id)}
                       className="btn-primary bg-red-600 hover:bg-red-700"

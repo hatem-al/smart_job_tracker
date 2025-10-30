@@ -66,6 +66,29 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Stream the resume PDF file (only if it belongs to the user)
+router.get('/:id/file', async (req, res) => {
+  try {
+    const resume = await Resume.findOne({ _id: req.params.id, user: req.user._id });
+    if (!resume) {
+      return res.status(404).json({ message: 'Resume not found' });
+    }
+
+    const filePath = resume.path || path.join(__dirname, '../../uploads', resume.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'Resume file not found' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(resume.originalName || resume.filename)}"`);
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Error streaming resume file:', error);
+    res.status(500).json({ message: 'Failed to stream resume file' });
+  }
+});
+
 // Upload a new resume
 router.post('/', upload.single('resume'), async (req, res) => {
   try {
