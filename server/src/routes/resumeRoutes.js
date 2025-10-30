@@ -6,24 +6,12 @@ const fs = require('fs');
 const pdf = require('pdf-parse');
 const OpenAI = require('openai');
 const Resume = require('../models/Resume');
+const mongoose = require('mongoose');
+const { Readable } = require('stream');
 
-// Configure multer for file upload
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// Configure multer to keep file in memory – we'll store to GridFS
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -35,6 +23,14 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB limit
   }
 });
+
+// Helper: GridFS bucket
+function getBucket() {
+  if (!mongoose.connection.db) {
+    throw new Error('Database not initialized');
+  }
+  return new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'resumes' });
+}
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -74,14 +70,14 @@ router.get('/:id/file', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    const filePath = resume.path || path.join(__dirname, '../../uploads', resume.filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'Resume file not found' });
-    }
-
+    const bucket = getBucket();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${path.basename(resume.originalName || resume.filename)}"`);
-    const stream = fs.createReadStream(filePath);
+    const stream = bucket.openDownloadStream(resume.fileId);
+    stream.on('error', (err) => {
+      console.error('Error streaming from GridFS:', err);
+      res.status(500).end();
+    });
     stream.pipe(res);
   } catch (error) {
     console.error('Error streaming resume file:', error);
@@ -96,10 +92,21 @@ router.post('/', upload.single('resume'), async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    const bucket = getBucket();
+    const uploadStream = bucket.openUploadStream(req.file.originalname, {
+      contentType: 'application/pdf'
+    });
+
+    await new Promise((resolve, reject) => {
+      uploadStream.on('finish', resolve);
+      uploadStream.on('error', reject);
+      Readable.from(req.file.buffer).pipe(uploadStream);
+    });
+
     const resume = new Resume({
-      filename: req.file.filename,
+      fileId: uploadStream.id,
+      filename: uploadStream.filename,
       originalName: req.file.originalname,
-      path: req.file.path,
       user: req.user._id,
       title: req.body.title || req.file.originalname
     });
@@ -120,10 +127,11 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    // Delete the file from the filesystem
-    const filePath = path.join(__dirname, '../../uploads', resume.filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const bucket = getBucket();
+    try {
+      await bucket.delete(resume.fileId);
+    } catch (e) {
+      console.error('Error deleting GridFS file:', e);
     }
 
     await Resume.deleteOne({ _id: req.params.id });
@@ -143,8 +151,16 @@ router.post('/analyze', async (req, res) => {
       return res.status(404).json({ message: 'Resume not found' });
     }
 
-    // Read the PDF file
-    const dataBuffer = fs.readFileSync(resume.path);
+    // Read the PDF file from GridFS
+    const bucket = getBucket();
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      const dl = bucket.openDownloadStream(resume.fileId);
+      dl.on('data', (c) => chunks.push(c));
+      dl.on('end', resolve);
+      dl.on('error', reject);
+    });
+    const dataBuffer = Buffer.concat(chunks);
     const pdfData = await pdf(dataBuffer);
     const resumeText = pdfData.text;
 
