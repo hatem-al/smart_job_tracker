@@ -36,7 +36,7 @@ const EditJob = () => {
     setError('');
 
     try {
-      const response = await axios.patch(`http://localhost:5050/api/jobs/${id}`, job);
+      const response = await axios.patch(`/api/jobs/${id}`, job);
       navigate('/jobs');
     } catch (error) {
       console.error('Error updating job:', error);
