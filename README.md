@@ -1,17 +1,17 @@
 # Smart Job Tracker
 
-Smart Job Tracker helps candidates organize every job application, keep resumes in sync, and fine-tune each resume for a specific role with AI assistance. The project ships with a React SPA and an Express/MongoDB API that stores resumes in GridFS and protects data with JWT-based auth.
+Smart Job Tracker helps candidates organize every job application, keep resumes in sync, and fine-tune each resume for a specific role with AI assistance. The project ships with a React and an Express/MongoDB API that stores resumes in GridFS and protects data with JWT-based auth.
 
 ## Key Features
 - Track applications with status, notes, job descriptions, and linked resumes.
 - Visual dashboard with success/rejection rates, response-time stats, and status distribution.
-- Resume vault with PDF uploads (5 MB cap) and inline preview streaming.
+- Resume vault with PDF uploads and inline preview streaming.
 - OpenAI-powered analyzer that compares any stored resume with a pasted job description.
 
 ## Tech Stack
 | Layer | Tools |
 | --- | --- |
-| Frontend | React 19, React Router 7, Tailwind CSS, Headless UI, Heroicons |
+| Frontend | React, React Router, Tailwind CSS, Headless UI, Heroicons |
 | Backend | Node.js, Express, Mongoose, JWT, bcrypt, Multer (memory) |
 | Storage | MongoDB + GridFS for PDFs |
 | AI | OpenAI SDK (default model `gpt-4o-mini`) |
