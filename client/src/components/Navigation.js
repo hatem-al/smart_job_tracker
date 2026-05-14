@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const Navigation = () => {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  let user = {};
+  try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch {}
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navItems = [

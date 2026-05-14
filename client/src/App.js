@@ -9,53 +9,29 @@ import ResumeManager from './components/ResumeManager';
 import ResumeOptimizer from './components/ResumeOptimizer';
 import ProtectedRoute from './components/ProtectedRoute';
 import EditJob from './components/EditJob';
+import Layout from './components/Layout';
+
+function ProtectedLayout({ children }) {
+  return (
+    <ProtectedRoute>
+      <Layout>{children}</Layout>
+    </ProtectedRoute>
+  );
+}
 
 function App() {
   return (
     <Router>
       <Routes>
-        {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        
-        {/* Protected routes */}
-        <Route path="/" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/jobs" element={
-          <ProtectedRoute>
-            <JobList />
-          </ProtectedRoute>
-        } />
-        <Route path="/jobs/new" element={
-          <ProtectedRoute>
-            <JobForm />
-          </ProtectedRoute>
-        } />
-        <Route path="/jobs/edit/:id" element={
-          <ProtectedRoute>
-            <EditJob />
-          </ProtectedRoute>
-        } />
-        <Route path="/resumes" element={
-          <ProtectedRoute>
-            <ResumeManager />
-          </ProtectedRoute>
-        } />
-        <Route path="/resume-optimizer" element={
-          <ProtectedRoute>
-            <ResumeOptimizer />
-          </ProtectedRoute>
-        } />
-        
-        {/* Redirect to dashboard if authenticated, otherwise to login */}
+        <Route path="/" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+        <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+        <Route path="/jobs" element={<ProtectedLayout><JobList /></ProtectedLayout>} />
+        <Route path="/jobs/new" element={<ProtectedLayout><JobForm /></ProtectedLayout>} />
+        <Route path="/jobs/edit/:id" element={<ProtectedLayout><EditJob /></ProtectedLayout>} />
+        <Route path="/resumes" element={<ProtectedLayout><ResumeManager /></ProtectedLayout>} />
+        <Route path="/resume-optimizer" element={<ProtectedLayout><ResumeOptimizer /></ProtectedLayout>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Router>

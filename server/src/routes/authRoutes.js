@@ -2,11 +2,49 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const auth = require('../middleware/auth');
+
+// Rate limiter: 10 login attempts per 15 min per IP
+const loginAttempts = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [key, timestamps] of loginAttempts) {
+    const fresh = timestamps.filter(t => t > cutoff);
+    if (fresh.length === 0) loginAttempts.delete(key);
+    else loginAttempts.set(key, fresh);
+  }
+}, 5 * 60 * 1000);
+
+function loginRateLimit(req, res, next) {
+  const key = req.ip;
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const max = 10;
+  const timestamps = (loginAttempts.get(key) || []).filter(t => now - t < windowMs);
+  if (timestamps.length >= max) {
+    return res.status(429).json({ message: 'Too many login attempts. Please try again later.' });
+  }
+  timestamps.push(now);
+  loginAttempts.set(key, timestamps);
+  next();
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Register new user
 router.post('/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required' });
+    }
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ message: 'Invalid email address' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -44,7 +82,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Login user
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -81,7 +119,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Get current user
-router.get('/me', async (req, res) => {
+router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-password');
     res.json(user);
